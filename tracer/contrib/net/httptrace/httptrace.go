@@ -8,55 +8,40 @@ import (
 	"github.com/DataDog/dd-trace-go/tracer/ext"
 )
 
-// HttpTracer is used to trace requests in a net/http server.
-type HttpTracer struct {
+type TraceHandler struct {
 	tracer  *tracer.Tracer
+	handler http.Handler
 	service string
 }
 
-// NewHttpTracer creates a HttpTracer for the given service and tracer.
-func NewHttpTracer(service string, t *tracer.Tracer) *HttpTracer {
+func NewTraceHandler(h http.Handler, service string, t *tracer.Tracer) *TraceHandler {
+	if t == nil {
+		t = tracer.DefaultTracer
+	}
 	t.SetServiceInfo(service, "net/http", ext.AppTypeWeb)
-	return &HttpTracer{
-		tracer:  t,
-		service: service,
-	}
+	return &TraceHandler{t, h, service}
 }
 
-// Handler will return a Handler that will wrap tracing around the
-// given handler.
-func (h *HttpTracer) Handler(handler http.Handler) http.Handler {
-	return h.TraceHandlerFunc(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
-		handler.ServeHTTP(writer, req)
-	}))
-}
-
-// TraceHandlerFunc will return a HandlerFunc that will wrap tracing around the
-// given handler func.
-func (h *HttpTracer) TraceHandlerFunc(handler http.HandlerFunc) http.HandlerFunc {
-
-	return func(writer http.ResponseWriter, req *http.Request) {
-
-		// bail out if tracing isn't enabled.
-		if !h.tracer.Enabled() {
-			handler(writer, req)
-			return
-		}
-
-		// trace the request
-		tracedRequest, span := h.trace(req)
-		defer span.Finish()
-
-		// trace the response
-		tracedWriter := newTracedResponseWriter(span, writer)
-
-		// run the request
-		handler(tracedWriter, tracedRequest)
+func (h *TraceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// bail out if tracing isn't enabled.
+	if !h.tracer.Enabled() {
+		h.ServeHTTP(w, r)
+		return
 	}
+
+	// trace the request
+	tracedRequest, span := h.trace(r)
+	defer span.Finish()
+
+	// trace the response
+	tracedWriter := newTracedResponseWriter(span, w)
+
+	// run the request
+	h.handler.ServeHTTP(tracedWriter, tracedRequest)
 }
 
 // span will create a span for the given request.
-func (h *HttpTracer) trace(req *http.Request) (*http.Request, *tracer.Span) {
+func (h *TraceHandler) trace(req *http.Request) (*http.Request, *tracer.Span) {
 	resource := req.Method + " " + req.URL.Path
 
 	span := h.tracer.NewRootSpan("http.request", h.service, resource)
