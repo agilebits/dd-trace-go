@@ -4,21 +4,17 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/DataDog/dd-trace-go/tracer"
 	"github.com/DataDog/dd-trace-go/tracer/contrib/net/httptrace"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	span := tracer.SpanFromContextDefault(r.Context())
-	fmt.Printf("tracing service:%s resource:%s", span.Service, span.Resource)
-	w.Write([]byte("hello world"))
+	fmt.Fprint(w, "Hello world!")
 }
 
 func Example() {
 	mux := http.NewServeMux()
-	mux.Handle("/users", handler)
-	mux.Handle("/anything", handler)
-	httpTracer := httptrace.NewHttpTracer("fake-service", tracer.DefaultTracer)
+	mux.HandleFunc("/", handler)
 
-	http.ListenAndServe(":8080", httpTracer.Handler(mux))
+	httpTracer := httptrace.NewHttpTracer("web-service", nil)
+	http.ListenAndServe(":8080", httpTracer.Trace(mux))
 }
