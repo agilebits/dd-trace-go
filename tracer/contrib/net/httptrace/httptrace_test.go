@@ -18,33 +18,31 @@ func TestHttpTracerDisabled(t *testing.T) {
 		_, err := w.Write([]byte("disabled!"))
 		assert.Nil(err)
 
-		// Ensure we have no tracing context.
+		// Ensure we have no tracing context
 		span, ok := tracer.SpanFromContext(r.Context())
 		assert.Nil(span)
 		assert.False(ok)
 	})
 
 	testTracer, testTransport := tracertest.GetTestTracer()
-	testTracer.SetEnabled(false) // the key line in this test.
+	testTracer.SetEnabled(false)
 	handler := NewTraceHandler(mux, "service", testTracer)
 
-	// make the request
+	// Make the request
 	r := httptest.NewRequest("GET", "/disabled", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	assert.Equal(200, w.Code)
-	assert.Equal(w.Body.String(), "disabled!")
+	assert.Equal("disabled!", w.Body.String())
 
-	// assert nothing was traced.
+	// Assert nothing was traced
 	testTracer.ForceFlush()
 	traces := testTransport.Traces()
-	assert.Len(traces, 0)
+	assert.Equal(0, len(traces))
 }
 
 func TestHttpTracer200(t *testing.T) {
 	assert := assert.New(t)
-
-	// setup
 	tracer, transport, router := setup(t)
 
 	// Send and verify a 200 request
@@ -52,55 +50,53 @@ func TestHttpTracer200(t *testing.T) {
 	r := httptest.NewRequest("GET", url, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, r)
-	assert.Equal(w.Code, 200)
-	assert.Equal(w.Body.String(), "200!")
+	assert.Equal(200, w.Code)
+	assert.Equal("200!\n", w.Body.String())
 
-	// ensure properly traced
+	// Ensure the request is properly traced
 	tracer.ForceFlush()
 	traces := transport.Traces()
-	assert.Len(traces, 1)
+	assert.Equal(1, len(traces))
 	spans := traces[0]
-	assert.Len(spans, 1)
+	assert.Equal(1, len(spans))
 
 	s := spans[0]
-	assert.Equal(s.Name, "http.request")
-	assert.Equal(s.Service, "my-service")
-	assert.Equal(s.Resource, "GET "+url)
-	assert.Equal(s.GetMeta("http.status_code"), "200")
-	assert.Equal(s.GetMeta("http.method"), "GET")
-	assert.Equal(s.GetMeta("http.url"), url)
-	assert.Equal(s.Error, int32(0))
+	assert.Equal("http.request", s.Name)
+	assert.Equal("my-service", s.Service)
+	assert.Equal("GET "+url, s.Resource)
+	assert.Equal("200", s.GetMeta("http.status_code"))
+	assert.Equal("GET", s.GetMeta("http.method"))
+	assert.Equal(url, s.GetMeta("http.url"))
+	assert.Equal(int32(0), s.Error)
 }
 
 func TestHttpTracer500(t *testing.T) {
 	assert := assert.New(t)
-
-	// setup
 	tracer, transport, router := setup(t)
 
-	// SEnd and verify a 200 request
+	// Send and verify a 500 request
 	url := "/500"
-	req := httptest.NewRequest("GET", url, nil)
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, req)
-	assert.Equal(writer.Code, 500)
-	assert.Equal(writer.Body.String(), "500!\n")
+	r := httptest.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	assert.Equal(500, w.Code)
+	assert.Equal("500!\n", w.Body.String())
 
-	// ensure properly traced
+	// Ensure the request is properly traced
 	tracer.ForceFlush()
 	traces := transport.Traces()
-	assert.Len(traces, 1)
+	assert.Equal(1, len(traces))
 	spans := traces[0]
-	assert.Len(spans, 1)
+	assert.Equal(1, len(spans))
 
 	s := spans[0]
-	assert.Equal(s.Name, "http.request")
-	assert.Equal(s.Service, "my-service")
-	assert.Equal(s.Resource, "GET "+url)
-	assert.Equal(s.GetMeta("http.status_code"), "500")
-	assert.Equal(s.GetMeta("http.method"), "GET")
-	assert.Equal(s.GetMeta("http.url"), url)
-	assert.Equal(s.Error, int32(1))
+	assert.Equal("http.request", s.Name)
+	assert.Equal("my-service", s.Service)
+	assert.Equal("GET "+url, s.Resource)
+	assert.Equal("500", s.GetMeta("http.status_code"))
+	assert.Equal("GET", s.GetMeta("http.method"))
+	assert.Equal(url, s.GetMeta("http.url"))
+	assert.Equal(int32(1), s.Error)
 }
 
 func setup(t *testing.T) (*tracer.Tracer, *tracertest.DummyTransport, http.Handler) {
@@ -116,25 +112,25 @@ func setup(t *testing.T) (*tracer.Tracer, *tracertest.DummyTransport, http.Handl
 	return tracer, transport, handler
 }
 
-// test handler
 func handler200(t *testing.T) http.HandlerFunc {
 	assert := assert.New(t)
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte("200!"))
+		_, err := w.Write([]byte("200!\n"))
 		assert.Nil(err)
+
 		span := tracer.SpanFromContextDefault(r.Context())
-		assert.Equal(span.Service, "my-service")
-		assert.Equal(span.Duration, int64(0))
+		assert.Equal("my-service", span.Service)
+		assert.Equal(int64(0), span.Duration)
 	}
 }
 
-// test handler
 func handler500(t *testing.T) http.HandlerFunc {
 	assert := assert.New(t)
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "500!", http.StatusInternalServerError)
 		span := tracer.SpanFromContextDefault(r.Context())
-		assert.Equal(span.Service, "my-service")
-		assert.Equal(span.Duration, int64(0))
+
+		assert.Equal("my-service", span.Service)
+		assert.Equal(int64(0), span.Duration)
 	}
 }
