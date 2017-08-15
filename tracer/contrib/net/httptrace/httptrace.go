@@ -8,12 +8,15 @@ import (
 	"github.com/DataDog/dd-trace-go/tracer/ext"
 )
 
+// TraceHandler is a handler that traces all incoming requests.
+// It implements the Handler interface.
 type TraceHandler struct {
 	*tracer.Tracer
 	http.Handler
 	service string
 }
 
+// NewTraceHandler allocates and returns a new TraceHandler.
 func NewTraceHandler(h http.Handler, service string, t *tracer.Tracer) *TraceHandler {
 	if t == nil {
 		t = tracer.DefaultTracer
@@ -22,6 +25,8 @@ func NewTraceHandler(h http.Handler, service string, t *tracer.Tracer) *TraceHan
 	return &TraceHandler{t, h, service}
 }
 
+// ServeHTTP creates a new span for each incoming request
+// and pass them through the underlying handler.
 func (h *TraceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// bail out if tracing isn't enabled
 	if !h.Tracer.Enabled() {
@@ -51,6 +56,7 @@ func (h *TraceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // tracedResponseWriter is a small wrapper around an http response writer that will
 // intercept and store the status of a request.
+// It implements the ResponseWriter interface.
 type tracedResponseWriter struct {
 	http.ResponseWriter
 	span   *tracer.Span

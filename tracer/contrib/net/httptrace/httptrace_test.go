@@ -6,21 +6,15 @@ import (
 	"testing"
 
 	"github.com/DataDog/dd-trace-go/tracer"
+	"github.com/DataDog/dd-trace-go/tracer/tracertest"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestHttpTracerDisabled(t *testing.T) {
 	assert := assert.New(t)
 
-	testTracer, testTransport, httpTracer := getTestTracer("disabled-service")
-	handler := httpTracer.TraceHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := w.Write([]byte("disabled!"))
-		assert.Nil(err)
-		// Ensure we have no tracing context.
-		span, ok := tracer.SpanFromContext(r.Context())
-		assert.Nil(span)
-		assert.False(ok)
-	})
+	testTracer, testTransport := tracertest.GetTestTracer()
+	handler := NewTraceHandler(http.NewServeMux(), "service", testTracer)
 	testTracer.SetEnabled(false) // the key line in this test.
 
 	// make the request
@@ -134,35 +128,3 @@ func setup(t *testing.T) (*tracer.Tracer, *dummyTransport, *http.ServeMux) {
 
 	return tracer, transport, mux
 }
-
-// getTestTracer returns a Tracer with a DummyTransport
-func getTestTracer(service string) (*tracer.Tracer, *dummyTransport, *HttpTracer) {
-	transport := &dummyTransport{}
-	tracer := tracer.NewTracerTransport(transport)
-	muxTracer := NewHttpTracer(service, tracer)
-	return tracer, transport, muxTracer
-}
-
-// dummyTransport is a transport that just buffers spans and encoding
-type dummyTransport struct {
-	traces   [][]*tracer.Span
-	services map[string]tracer.Service
-}
-
-func (t *dummyTransport) SendTraces(traces [][]*tracer.Span) (*http.Response, error) {
-	t.traces = append(t.traces, traces...)
-	return nil, nil
-}
-
-func (t *dummyTransport) SendServices(services map[string]tracer.Service) (*http.Response, error) {
-	t.services = services
-	return nil, nil
-}
-
-func (t *dummyTransport) Traces() [][]*tracer.Span {
-	traces := t.traces
-	t.traces = nil
-	return traces
-}
-
-func (t *dummyTransport) SetHeader(key, value string) {}

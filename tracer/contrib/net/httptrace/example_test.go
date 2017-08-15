@@ -1,20 +1,18 @@
 package httptrace_test
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/DataDog/dd-trace-go/tracer/contrib/net/httptrace"
+	ht "github.com/DataDog/dd-trace-go/tracer/contrib/net/httptrace"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w, "Hello world!")
+	w.Write([]byte("Hello World!"))
 }
 
 func Example() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
 
-	httpTracer := httptrace.NewHttpTracer("web-service", nil)
-	http.ListenAndServe(":8080", httpTracer.Trace(mux))
+	http.ListenAndServe(":8080", ht.NewTraceHandler(mux, "web-service", nil))
 }
