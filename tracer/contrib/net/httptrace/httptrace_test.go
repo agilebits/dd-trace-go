@@ -13,16 +13,27 @@ import (
 func TestHttpTracerDisabled(t *testing.T) {
 	assert := assert.New(t)
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/disabled", func(w http.ResponseWriter, r *http.Request) {
+		_, err := w.Write([]byte("disabled!"))
+		assert.Nil(err)
+
+		// Ensure we have no tracing context.
+		span, ok := tracer.SpanFromContext(r.Context())
+		assert.Nil(span)
+		assert.False(ok)
+	})
+
 	testTracer, testTransport := tracertest.GetTestTracer()
-	handler := NewTraceHandler(http.NewServeMux(), "service", testTracer)
 	testTracer.SetEnabled(false) // the key line in this test.
+	handler := NewTraceHandler(mux, "service", testTracer)
 
 	// make the request
-	req := httptest.NewRequest("GET", "/disabled", nil)
-	writer := httptest.NewRecorder()
-	handler.ServeHTTP(writer, req)
-	assert.Equal(writer.Code, 200)
-	assert.Equal(writer.Body.String(), "disabled!")
+	r := httptest.NewRequest("GET", "/disabled", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	assert.Equal(200, w.Code)
+	assert.Equal(w.Body.String(), "disabled!")
 
 	// assert nothing was traced.
 	testTracer.ForceFlush()
@@ -38,11 +49,11 @@ func TestHttpTracer200(t *testing.T) {
 
 	// Send and verify a 200 request
 	url := "/200"
-	req := httptest.NewRequest("GET", url, nil)
-	writer := httptest.NewRecorder()
-	router.ServeHTTP(writer, req)
-	assert.Equal(writer.Code, 200)
-	assert.Equal(writer.Body.String(), "200!")
+	r := httptest.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	assert.Equal(w.Code, 200)
+	assert.Equal(w.Body.String(), "200!")
 
 	// ensure properly traced
 	tracer.ForceFlush()
@@ -92,8 +103,20 @@ func TestHttpTracer500(t *testing.T) {
 	assert.Equal(s.Error, int32(1))
 }
 
-// test handlers
+func setup(t *testing.T) (*tracer.Tracer, *tracertest.DummyTransport, http.Handler) {
+	h200 := handler200(t)
+	h500 := handler500(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/200", h200)
+	mux.HandleFunc("/500", h500)
 
+	tracer, transport := tracertest.GetTestTracer()
+	handler := NewTraceHandler(mux, "my-service", tracer)
+
+	return tracer, transport, handler
+}
+
+// test handler
 func handler200(t *testing.T) http.HandlerFunc {
 	assert := assert.New(t)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +128,7 @@ func handler200(t *testing.T) http.HandlerFunc {
 	}
 }
 
+// test handler
 func handler500(t *testing.T) http.HandlerFunc {
 	assert := assert.New(t)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -113,18 +137,4 @@ func handler500(t *testing.T) http.HandlerFunc {
 		assert.Equal(span.Service, "my-service")
 		assert.Equal(span.Duration, int64(0))
 	}
-}
-
-func setup(t *testing.T) (*tracer.Tracer, *dummyTransport, *http.ServeMux) {
-	tracer, transport, ht := getTestTracer("my-service")
-
-	mux := http.NewServeMux()
-
-	h200 := handler200(t)
-	h500 := handler500(t)
-
-	mux.Handle("/200", ht.Handler(h200))
-	mux.Handle("/500", ht.Handler(h500))
-
-	return tracer, transport, mux
 }
