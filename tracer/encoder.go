@@ -7,6 +7,11 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
+const (
+	jsonContentType    = "application/json"
+	msgpackContentType = "application/msgpack"
+)
+
 // Encoder is a generic interface that expects encoding methods for traces and
 // services, and a Read() method that will be used by the http handler
 type Encoder interface {
@@ -32,20 +37,18 @@ func newMsgpackEncoder() *msgpackEncoder {
 	return &msgpackEncoder{
 		buffer:      buffer,
 		encoder:     encoder,
-		contentType: "application/msgpack",
+		contentType: msgpackContentType,
 	}
 }
 
 // EncodeTraces serializes the given trace list into the internal buffer,
 // returning the error if any.
 func (e *msgpackEncoder) EncodeTraces(traces [][]*Span) error {
-	e.buffer.Reset()
 	return e.encoder.Encode(traces)
 }
 
 // EncodeServices serializes a service map into the internal buffer.
 func (e *msgpackEncoder) EncodeServices(services map[string]Service) error {
-	e.buffer.Reset()
 	return e.encoder.Encode(services)
 }
 
@@ -74,20 +77,18 @@ func newJSONEncoder() *jsonEncoder {
 	return &jsonEncoder{
 		buffer:      buffer,
 		encoder:     encoder,
-		contentType: "application/json",
+		contentType: jsonContentType,
 	}
 }
 
 // EncodeTraces serializes the given trace list into the internal buffer,
 // returning the error if any.
 func (e *jsonEncoder) EncodeTraces(traces [][]*Span) error {
-	e.buffer.Reset()
 	return e.encoder.Encode(traces)
 }
 
 // EncodeServices serializes a service map into the internal buffer.
 func (e *jsonEncoder) EncodeServices(services map[string]Service) error {
-	e.buffer.Reset()
 	return e.encoder.Encode(services)
 }
 
@@ -101,54 +102,13 @@ func (e *jsonEncoder) ContentType() string {
 	return e.contentType
 }
 
-const (
-	JSON_ENCODER = iota
-	MSGPACK_ENCODER
-)
+// encoderFactory will provide a new encoder each time we want to flush traces or services.
+type encoderFactory func() Encoder
 
-// EncoderPool is a pool meant to share the buffers required to encode traces.
-// It naively tries to cap the number of active encoders, but doesn't enforce
-// the limit. To use a pool, you should Borrow() for an encoder and then
-// Return() that encoder to the pool. Encoders in that pool should honor
-// the Encoder interface.
-type encoderPool struct {
-	encoderType int
-	pool        chan Encoder
+func jsonEncoderFactory() Encoder {
+	return newJSONEncoder()
 }
 
-func newEncoderPool(encoderType, size int) (*encoderPool, string) {
-	pool := &encoderPool{
-		encoderType: encoderType,
-		pool:        make(chan Encoder, size),
-	}
-
-	// Borrow an encoder to retrieve the default ContentType
-	encoder := pool.Borrow()
-	pool.Return(encoder)
-
-	contentType := encoder.ContentType()
-	return pool, contentType
-}
-
-func (p *encoderPool) Borrow() Encoder {
-	var encoder Encoder
-
-	select {
-	case encoder = <-p.pool:
-	default:
-		switch p.encoderType {
-		case JSON_ENCODER:
-			encoder = newJSONEncoder()
-		case MSGPACK_ENCODER:
-			encoder = newMsgpackEncoder()
-		}
-	}
-	return encoder
-}
-
-func (p *encoderPool) Return(e Encoder) {
-	select {
-	case p.pool <- e:
-	default:
-	}
+func msgpackEncoderFactory() Encoder {
+	return newMsgpackEncoder()
 }

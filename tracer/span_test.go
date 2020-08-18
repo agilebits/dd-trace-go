@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/DataDog/dd-trace-go/tracer/ext"
 )
 
 func TestSpanStart(t *testing.T) {
@@ -49,11 +51,16 @@ func TestSpanSetMetas(t *testing.T) {
 	assert := assert.New(t)
 	tracer := NewTracer()
 	span := tracer.NewRootSpan("pylons.request", "pylons", "/")
+	span.SetSamplingPriority(0) // avoid interferences with "_sampling_priority_v1" meta
 	metas := map[string]string{
 		"error.msg":   "Something wrong",
 		"error.type":  "*errors.errorString",
 		"status.code": "200",
 		"system.pid":  "29176",
+	}
+	extraMetas := map[string]string{
+		"custom.1": "something custom",
+		"custom.2": "something even more special",
 	}
 	nopMetas := map[string]string{
 		"nopKey1": "nopValue1",
@@ -62,16 +69,24 @@ func TestSpanSetMetas(t *testing.T) {
 
 	// check the map is properly initialized
 	span.SetMetas(metas)
-	assert.Equal(len(span.Meta), len(metas))
+	assert.Equal(len(metas), len(span.Meta))
 	for k := range metas {
 		assert.Equal(metas[k], span.Meta[k])
 	}
+
+	// check a second call adds the new metas, but does not remove old ones
+	span.SetMetas(extraMetas)
+	assert.Equal(len(metas)+len(extraMetas), len(span.Meta))
+	for k := range extraMetas {
+		assert.Equal(extraMetas[k], span.Meta[k])
+	}
+
 	assert.Equal(span.Meta["status.code"], "200")
 
 	// operating on a finished span is a no-op
 	span.Finish()
 	span.SetMetas(nopMetas)
-	assert.Equal(len(span.Meta), len(metas))
+	assert.Equal(len(metas)+len(extraMetas), len(span.Meta))
 	for k := range nopMetas {
 		assert.Equal("", span.Meta[k])
 	}
@@ -235,6 +250,37 @@ func TestSpanModifyWhileFlushing(t *testing.T) {
 		default:
 			tracer.flushTraces()
 		}
+	}
+}
+
+func TestSpanSamplingPriority(t *testing.T) {
+	assert := assert.New(t)
+	tracer := NewTracer()
+
+	span := tracer.NewRootSpan("my.name", "my.service", "my.resource")
+	assert.Equal(0.0, span.Metrics["_sampling_priority_v1"], "default sampling priority if undefined is 0")
+	assert.False(span.HasSamplingPriority(), "by default, sampling priority is undefined")
+	assert.Equal(0, span.GetSamplingPriority(), "default sampling priority for root spans is 0")
+
+	childSpan := tracer.NewChildSpan("my.child", span)
+	assert.Equal(span.Metrics["_sampling_priority_v1"], childSpan.Metrics["_sampling_priority_v1"])
+	assert.Equal(span.HasSamplingPriority(), childSpan.HasSamplingPriority())
+	assert.Equal(span.GetSamplingPriority(), childSpan.GetSamplingPriority())
+
+	for _, priority := range []int{
+		ext.PriorityUserReject,
+		ext.PriorityAutoReject,
+		ext.PriorityAutoKeep,
+		ext.PriorityUserKeep,
+		999, // not used yet, but we should allow it
+	} {
+		span.SetSamplingPriority(priority)
+		assert.True(span.HasSamplingPriority())
+		assert.Equal(priority, span.GetSamplingPriority())
+		childSpan = tracer.NewChildSpan("my.child", span)
+		assert.Equal(span.Metrics["_sampling_priority_v1"], childSpan.Metrics["_sampling_priority_v1"])
+		assert.Equal(span.HasSamplingPriority(), childSpan.HasSamplingPriority())
+		assert.Equal(span.GetSamplingPriority(), childSpan.GetSamplingPriority())
 	}
 }
 

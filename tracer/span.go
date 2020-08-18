@@ -14,6 +14,8 @@ const (
 	errorMsgKey   = "error.msg"
 	errorTypeKey  = "error.type"
 	errorStackKey = "error.stack"
+
+	samplingPriorityKey = "_sampling_priority_v1"
 )
 
 // Span represents a computation. Callers must call Finish when a span is
@@ -205,6 +207,16 @@ func (s *Span) SetError(err error) {
 // current Span. Once a Span has been finished, methods that modify the Span
 // will become no-ops.
 func (s *Span) Finish() {
+	s.finish(now())
+}
+
+// FinishWithTime closes this Span at the given `finishTime`. The
+// behavior is the same as `Finish()`.
+func (s *Span) FinishWithTime(finishTime int64) {
+	s.finish(finishTime)
+}
+
+func (s *Span) finish(finishTime int64) {
 	if s == nil {
 		return
 	}
@@ -213,7 +225,7 @@ func (s *Span) Finish() {
 	finished := s.finished
 	if !finished {
 		if s.Duration == 0 {
-			s.Duration = now() - s.Start
+			s.Duration = finishTime - s.Start
 		}
 		s.finished = true
 	}
@@ -301,6 +313,23 @@ func (s *Span) Tracer() *Tracer {
 		return nil
 	}
 	return s.tracer
+}
+
+// SetSamplingPriority sets the sampling priority.
+func (s *Span) SetSamplingPriority(priority int) {
+	s.SetMetric(samplingPriorityKey, float64(priority))
+}
+
+// HasSamplingPriority returns true if sampling priority is set.
+// It can be defined to either zero or non-zero.
+func (s *Span) HasSamplingPriority() bool {
+	_, hasSamplingPriority := s.Metrics[samplingPriorityKey]
+	return hasSamplingPriority
+}
+
+// GetSamplingPriority gets the sampling priority.
+func (s *Span) GetSamplingPriority() int {
+	return int(s.Metrics[samplingPriorityKey])
 }
 
 // NextSpanID returns a new random span id.
